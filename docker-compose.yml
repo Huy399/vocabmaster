@@ -1,0 +1,14 @@
+services:
+  vocabmaster:
+    build: .
+    container_name: vocabmaster
+    ports:
+      - "8000:8000"
+    volumes:
+      - vocab_data:/app
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
+
+volumes:
+  vocab_data:
