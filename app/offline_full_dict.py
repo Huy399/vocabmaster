@@ -107,11 +107,21 @@ def _parse_row(word: str, pronounce: Optional[str], desc: Optional[str], html_te
     clean_ipa = f"/{pronounce.strip()}/" if pronounce and pronounce.strip() else f"/{word}/"
     pos, meaning = _clean_definition(desc, html_text, word)
 
+    example_sentence = ""
+    example_vi = ""
+    if html_text:
+        m = re.search(r'<li>([^<:]+):\s*<i>\s*([^<]+)</i>', html_text)
+        if m:
+            example_sentence = m.group(1).strip()
+            example_vi = m.group(2).strip()
+
     return {
         "word": word,
         "ipa": clean_ipa,
         "pos": pos,
         "meaning_vi": meaning,
+        "example_sentence": example_sentence,
+        "example_vi": example_vi,
         "html": html_text or "",
         "source": "offline_dict_108k"
     }

@@ -422,6 +422,8 @@ def api_translate_word(word: str):
                 "ipa": entry["ipa"],
                 "meaning_vi": clean_vietnamese_text(entry["meaning_vi"]),
                 "pos": entry["pos"],
+                "example_sentence": entry.get("example_sentence", ""),
+                "example_vi": entry.get("example_vi", ""),
                 "cefr_level": "B1" if len(lookup_word) <= 5 else "B2",
                 "source": "offline_dict_108k"
             }

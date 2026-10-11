@@ -2147,6 +2147,8 @@ CURATED_SYNONYMS = {
     'drop': ['release', 'fall', 'descend', 'plunge', 'shed', 'discard', 'let fall'],
     'easy': ['simple', 'effortless', 'straightforward', 'uncomplicated', 'painless', 'smooth', 'facile'],
     'even': ['level', 'flat', 'smooth', 'plane', 'flush', 'uniform', 'horizontal'],
+    'endorphin': ['neurotransmitter', 'hormone', 'dopamine', 'serotonin', 'enkephalin'],
+    'endorphins': ['neurotransmitter', 'hormone', 'dopamine', 'serotonin', 'enkephalin'],
     'expand': ['enlarge', 'extend', 'broaden', 'widen', 'inflate', 'develop', 'stretch', 'amplify'],
     'fair': ['equitable', 'just', 'impartial', 'unbiased', 'reasonable', 'honest', 'objective', 'even-handed'],
     'fall': ['drop', 'descend', 'plummet', 'tumble', 'plunge', 'sink', 'decline', 'decrease', 'slump'],
@@ -2267,6 +2269,13 @@ THESAURUS_CONTEXT_TRANSLATIONS = {
     'anachronism': 'sự lỗi thời, sự sai niên đại',
     'anarchy': 'tình trạng vô chính phủ hỗn loạn',
     'animal': 'động vật, muông thú',
+    'endorphin': 'chất endorphin (hormone hạnh phúc và giảm đau tự nhiên)',
+    'endorphins': 'các chất endorphin (hormone hạnh phúc và giảm đau tự nhiên)',
+    'neurotransmitter': 'chất dẫn truyền thần kinh',
+    'enkephalin': 'chất giảm đau tự nhiên trong hệ thần kinh',
+    'dopamine': 'chất dẫn truyền thần kinh tạo động lực và hưng phấn',
+    'serotonin': 'chất dẫn truyền thần kinh điều hòa cảm xúc và giấc ngủ',
+    'hormone': 'nội tiết tố, hormone sinh học',
     'anniversary': 'ngày kỷ niệm mốc lịch sử',
     'announce': 'công bố thông báo rộng rãi',
     'annulus': 'hình vành khăn tròn',
@@ -3748,9 +3757,21 @@ Return ONLY JSON without markdown commentary.
         example_en = ai_result["example_sentence"]
         example_vi = clean_vietnamese_text(ai_result.get("example_vi", ""))
     else:
-        example_en = synthesize_clean_sentence(clean_word, pos=default_pos, meaning_vi=headword_meaning)
-        ex_trans_map = batch_translate_gtx([example_en])
-        example_vi = clean_vietnamese_text(ex_trans_map.get(example_en, ""))
+        # Ưu tiên lấy ví dụ song ngữ chuẩn xác từ từ điển 108K
+        dict_108k_ex = None
+        try:
+            from app.offline_full_dict import lookup_full_dict
+            dict_108k_ex = lookup_full_dict(clean_word)
+        except Exception:
+            pass
+
+        if dict_108k_ex and dict_108k_ex.get("example_sentence"):
+            example_en = dict_108k_ex["example_sentence"]
+            example_vi = clean_vietnamese_text(dict_108k_ex.get("example_vi", ""))
+        else:
+            example_en = synthesize_clean_sentence(clean_word, pos=default_pos, meaning_vi=headword_meaning)
+            ex_trans_map = batch_translate_gtx([example_en])
+            example_vi = clean_vietnamese_text(ex_trans_map.get(example_en, ""))
 
     def get_candidate_vi(w: str, target_pos: str) -> str:
         wl = w.lower().strip()

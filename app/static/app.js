@@ -1762,6 +1762,18 @@ function renderThesaurusInitialFast(data) {
   const isSaved = (state.words || []).some(w => w.word.toLowerCase() === data.word.toLowerCase());
   updateThesaurusSavedState(isSaved);
 
+  // Ẩn câu ví dụ cũ của từ trước ngay lập tức để không bao giờ bị lẫn lộn câu ví dụ
+  const exampleBox = document.getElementById('thesaurus-example-box');
+  const exEn = document.getElementById('thesaurus-example-en');
+  const exVi = document.getElementById('thesaurus-example-vi');
+  if (data.example_sentence && data.example_sentence.trim()) {
+    if (exEn) exEn.innerHTML = `&ldquo;${highlightWordInSentence(data.example_sentence, data.word)}&rdquo;`;
+    if (exVi) exVi.textContent = data.example_vi ? `Dịch: "${data.example_vi}"` : '';
+    if (exampleBox) exampleBox.classList.remove('hidden');
+  } else {
+    if (exampleBox) exampleBox.classList.add('hidden');
+  }
+
   // Hiển thị khung chờ nạp từ đồng nghĩa / trái nghĩa thanh lịch mà không che mất định nghĩa từ vựng
   const synGrid = document.getElementById('thesaurus-synonyms-grid');
   const antGrid = document.getElementById('thesaurus-antonyms-grid');
@@ -1829,6 +1841,24 @@ async function searchThesaurus(rawWord, rawContext) {
   thesaurusAbortCtrl = new AbortController();
   const signal = thesaurusAbortCtrl.signal;
 
+  // Giới hạn tối đa 3 giây: Nếu mạng ngoài chậm, tự động đóng vòng xoay nạp từ đồng nghĩa
+  const safetyTimeout = setTimeout(() => {
+    if (state.activeThesaurusWord === word) {
+      const synGrid = document.getElementById('thesaurus-synonyms-grid');
+      if (synGrid && synGrid.innerHTML.includes('animate-pulse')) {
+        synGrid.innerHTML = `<div class="col-span-full py-6 text-center text-xs text-slate-400 dark:text-zinc-500 italic">Không có từ đồng nghĩa trực tiếp cho từ này.</div>`;
+      }
+      const antGrid = document.getElementById('thesaurus-antonyms-grid');
+      if (antGrid && antGrid.innerHTML.includes('animate-pulse')) {
+        antGrid.innerHTML = `<div class="col-span-full py-6 text-center text-xs text-slate-400 dark:text-zinc-500 italic">Không có từ trái nghĩa trực tiếp cho từ này.</div>`;
+      }
+      const synCount = document.getElementById('thesaurus-syn-count');
+      const antCount = document.getElementById('thesaurus-ant-count');
+      if (synCount && synCount.textContent === '...') synCount.textContent = '0 từ';
+      if (antCount && antCount.textContent === '...') antCount.textContent = '0 từ';
+    }
+  }, 3000);
+
   try {
     let url = `/api/thesaurus?word=${encodeURIComponent(word)}`;
     if (context) {
@@ -1844,6 +1874,7 @@ async function searchThesaurus(rawWord, rawContext) {
     }
 
     const res = await fetch(url, { signal, headers: fetchHeaders });
+    clearTimeout(safetyTimeout);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -1862,6 +1893,7 @@ async function searchThesaurus(rawWord, rawContext) {
     }
 
   } catch (err) {
+    clearTimeout(safetyTimeout);
     if (err.name === 'AbortError') {
       return;
     }
