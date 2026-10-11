@@ -563,8 +563,9 @@ def translate_chunk_gtx(chunk: List[str]) -> Dict[str, str]:
             bulk_entries = lookup_full_dict_bulk(missing)
             for w in list(missing):
                 wl = w.lower().strip()
-                if wl in bulk_entries:
-                    m = bulk_entries[wl].get("meaning_vi")
+                entry = bulk_entries.get(w) or bulk_entries.get(wl)
+                if entry:
+                    m = entry.get("meaning_vi")
                     if m and m.lower() != wl:
                         results[w] = m
                         missing.remove(w)
@@ -3404,6 +3405,14 @@ Return ONLY JSON without markdown commentary.
         or THESAURUS_CONTEXT_TRANSLATIONS.get(clean_word)
         or clean_vietnamese_text(builtin_info.get("vi", ""))
     )
+    if not default_meaning:
+        try:
+            from app.offline_full_dict import lookup_full_dict
+            dict_108k_res = lookup_full_dict(clean_word)
+            if dict_108k_res and dict_108k_res.get("meaning_vi") and dict_108k_res["meaning_vi"].lower() != clean_word:
+                default_meaning = clean_vietnamese_text(dict_108k_res["meaning_vi"])
+        except Exception as e:
+            logger.debug(f"Offline 108K default_meaning failed: {e}")
 
     # Hàm lọc bỏ các từ đa nghĩa nhiễu (spurious polysemous links từ WordNet)
     # Hàm lọc bỏ các từ đa nghĩa nhiễu (spurious polysemous links từ WordNet)
