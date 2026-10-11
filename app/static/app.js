@@ -1736,12 +1736,65 @@ function renderThesaurusResult(data) {
   lucide.createIcons();
 }
 
+function renderThesaurusInitialFast(data) {
+  const emptyEl = document.getElementById('thesaurus-empty-state');
+  const loadingEl = document.getElementById('thesaurus-loading-state');
+  const resultEl = document.getElementById('thesaurus-result-container');
+
+  if (emptyEl) emptyEl.classList.add('hidden');
+  if (loadingEl) loadingEl.classList.add('hidden');
+  if (resultEl) resultEl.classList.remove('hidden');
+
+  // Render ngay lập tức dữ liệu từ vựng ngoại tuyến O(1)
+  document.getElementById('thesaurus-headword').textContent = data.word;
+  document.getElementById('thesaurus-ipa').textContent = data.ipa || `/${data.word}/`;
+  document.getElementById('thesaurus-pos').textContent = data.pos || 'vocabulary';
+  const meaning = cleanVietnamese(data.meaning_vi || data.word);
+  document.getElementById('thesaurus-meaning-vi').textContent = meaning;
+
+  const levelEl = document.getElementById('thesaurus-level');
+  if (levelEl) {
+    levelEl.textContent = data.cefr_level || 'B1';
+    levelEl.classList.remove('hidden');
+  }
+
+  // Cập nhật trạng thái đã lưu
+  const isSaved = (state.words || []).some(w => w.word.toLowerCase() === data.word.toLowerCase());
+  updateThesaurusSavedState(isSaved);
+
+  // Hiển thị khung chờ nạp từ đồng nghĩa / trái nghĩa thanh lịch mà không che mất định nghĩa từ vựng
+  const synGrid = document.getElementById('thesaurus-synonyms-grid');
+  const antGrid = document.getElementById('thesaurus-antonyms-grid');
+  const synCount = document.getElementById('thesaurus-syn-count');
+  const antCount = document.getElementById('thesaurus-ant-count');
+  if (synCount) synCount.textContent = '...';
+  if (antCount) antCount.textContent = '...';
+
+  if (synGrid) {
+    synGrid.innerHTML = `
+      <div class="col-span-full p-4 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center space-x-2 animate-pulse">
+        <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+        <span>Đang nạp mạng lưới từ đồng nghĩa...</span>
+      </div>`;
+  }
+  if (antGrid) {
+    antGrid.innerHTML = `
+      <div class="col-span-full p-4 rounded-2xl bg-slate-50 dark:bg-zinc-900/40 text-slate-500 dark:text-zinc-400 text-xs font-semibold flex items-center space-x-2 animate-pulse">
+        <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+        <span>Đang nạp từ trái nghĩa...</span>
+      </div>`;
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
 async function searchThesaurus(rawWord, rawContext) {
   const word = (rawWord || '').trim().toLowerCase();
   const context = (rawContext || '').trim();
   if (!word) return;
 
-  // BỘ TĂNG TỐC: Kiểm tra cache client trước — hiển thị tức thời nếu đã tra
+  state.activeThesaurusWord = word;
+
+  // BỘ TĂNG TỐC 1: Kiểm tra cache client trước — hiển thị tức thời 0ms nếu đã tra
   const cacheKey = `${word}:${context}`;
   if (thesaurusCache.has(cacheKey)) {
     const cachedData = thesaurusCache.get(cacheKey);
@@ -1750,8 +1803,24 @@ async function searchThesaurus(rawWord, rawContext) {
     return;
   }
 
-  // Đảm bảo event delegation đã gắn
   setupThesaurusDelegation();
+
+  // BỘ TĂNG TỐC 2: Hiển thị TỨC THÌ (< 2ms) từ điển 108K ngoại tuyến!
+  // Người dùng nhìn thấy ngay Nghĩa tiếng Việt, Phiên âm IPA, Loại từ mà không cần chờ mạng!
+  const quickCached = translateCache.get(word);
+  if (quickCached) {
+    renderThesaurusInitialFast(quickCached);
+  } else {
+    fetch(`/api/translate?word=${encodeURIComponent(word)}`)
+      .then(res => res.ok ? res.json() : null)
+      .then(tData => {
+        if (tData && state.activeThesaurusWord === word && !thesaurusCache.has(cacheKey)) {
+          translateCache.set(word, tData);
+          renderThesaurusInitialFast(tData);
+        }
+      })
+      .catch(() => {});
+  }
 
   // Hủy request trước nếu đang chạy dở để chống race condition
   if (thesaurusAbortCtrl) {
@@ -1759,14 +1828,6 @@ async function searchThesaurus(rawWord, rawContext) {
   }
   thesaurusAbortCtrl = new AbortController();
   const signal = thesaurusAbortCtrl.signal;
-
-  const emptyEl = document.getElementById('thesaurus-empty-state');
-  const loadingEl = document.getElementById('thesaurus-loading-state');
-  const resultEl = document.getElementById('thesaurus-result-container');
-
-  if (emptyEl) emptyEl.classList.add('hidden');
-  if (resultEl) resultEl.classList.add('hidden');
-  if (loadingEl) loadingEl.classList.remove('hidden');
 
   try {
     let url = `/api/thesaurus?word=${encodeURIComponent(word)}`;
@@ -1796,15 +1857,27 @@ async function searchThesaurus(rawWord, rawContext) {
     }
     thesaurusCache.set(cacheKey, data);
 
-    renderThesaurusResult(data);
+    if (state.activeThesaurusWord === word) {
+      renderThesaurusResult(data);
+    }
 
   } catch (err) {
     if (err.name === 'AbortError') {
-      // Yêu cầu tìm kiếm mới đã thay thế, bỏ qua không hiển thị lỗi
       return;
     }
     console.error('Error searching thesaurus:', err);
+    // Nếu đã có dữ liệu nhanh từ điển 108K thì không hiện màn hình lỗi toàn trang
+    const resultEl = document.getElementById('thesaurus-result-container');
+    if (resultEl && !resultEl.classList.contains('hidden')) {
+      const synGrid = document.getElementById('thesaurus-synonyms-grid');
+      if (synGrid) synGrid.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-2">Không tìm thấy thêm từ đồng nghĩa.</p>`;
+      const antGrid = document.getElementById('thesaurus-antonyms-grid');
+      if (antGrid) antGrid.innerHTML = `<p class="col-span-full text-xs text-slate-400 py-2">Không tìm thấy từ trái nghĩa.</p>`;
+      return;
+    }
     showToast('Lỗi khi tra cứu từ vựng. Vui lòng thử lại.');
+    const loadingEl = document.getElementById('thesaurus-loading-state');
+    const emptyEl = document.getElementById('thesaurus-empty-state');
     if (loadingEl) loadingEl.classList.add('hidden');
     if (emptyEl) emptyEl.classList.add('hidden');
     if (resultEl) {

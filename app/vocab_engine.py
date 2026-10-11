@@ -33,8 +33,8 @@ from functools import lru_cache
 # Cache LRU cho kết quả Thesaurus — tra lại từ đã tra sẽ tức thời (~0ms)
 _THESAURUS_CACHE = {}  # {word: {"result": dict, "timestamp": float}}
 _THESAURUS_CACHE_LOCK = threading.Lock()
-_THESAURUS_CACHE_MAX = 500
-_THESAURUS_CACHE_TTL = 3600  # 1 giờ
+_THESAURUS_CACHE_MAX = 10000
+_THESAURUS_CACHE_TTL = 86400  # 24 giờ
 
 def _get_cached_thesaurus(word: str) -> Optional[Dict[str, Any]]:
     """Lấy kết quả thesaurus từ cache nếu còn hạn (TTL 1h)."""
@@ -3490,22 +3490,22 @@ Return ONLY JSON without markdown commentary.
     if need_syn or need_ant or need_def:
         def _fetch_dm(endpoint_params: dict) -> list:
             try:
-                r = get_http_session().get("https://api.datamuse.com/words", params=endpoint_params, timeout=2.5)
+                r = get_http_session().get("https://api.datamuse.com/words", params=endpoint_params, timeout=1.5)
                 if r.status_code == 200:
                     return r.json()
             except Exception as e:
                 logger.debug(f"Datamuse API call failed: {e}")
             return []
 
-        with ThreadPoolExecutor(max_workers=4) as dm_executor:
+        with ThreadPoolExecutor(max_workers=3) as dm_executor:
             dm_futures = {}
             if need_syn:
-                dm_futures["syn"] = dm_executor.submit(_fetch_dm, {"rel_syn": clean_word, "md": "dp", "max": 40})
-                dm_futures["ml"] = dm_executor.submit(_fetch_dm, {"ml": clean_word, "md": "dp", "max": 30})
-            if need_ant:
-                dm_futures["ant"] = dm_executor.submit(_fetch_dm, {"rel_ant": clean_word, "md": "dp", "max": 35})
-            # Luôn fetch definition của headword để phục vụ TF-IDF Cosine Similarity và POS verification
-            dm_futures["def"] = dm_executor.submit(_fetch_dm, {"sp": clean_word, "md": "dp", "max": 1})
+                dm_futures["syn"] = dm_executor.submit(_fetch_dm, {"rel_syn": clean_word, "md": "dp", "max": 35})
+            if need_ant and not is_non_polar:
+                dm_futures["ant"] = dm_executor.submit(_fetch_dm, {"rel_ant": clean_word, "md": "dp", "max": 25})
+            # Chỉ fetch def từ Datamuse nếu thiếu định nghĩa và từ loại từ DB 108K
+            if not default_meaning or default_pos == "vocabulary":
+                dm_futures["def"] = dm_executor.submit(_fetch_dm, {"sp": clean_word, "md": "dp", "max": 1})
 
             for key, fut in dm_futures.items():
                 try:
