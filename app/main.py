@@ -413,15 +413,28 @@ def api_translate_word(word: str):
             "cefr_level": info.get("level", "B1")
         }
     else:
-        trans_map = batch_translate_gtx([lookup_word])
-        meaning = clean_vietnamese_text(trans_map.get(lookup_word, lookup_word))
-        result = {
-            "word": lookup_word,
-            "ipa": f"/{lookup_word}/",
-            "meaning_vi": meaning,
-            "pos": infer_pos(lookup_word),
-            "cefr_level": "B1" if len(lookup_word) <= 5 else "B2"
-        }
+        # Tra cứu siêu tốc từ điển 108.000 từ Offline (O(1) SQLite: ~0.03ms)
+        from app.offline_full_dict import lookup_full_dict
+        entry = lookup_full_dict(lookup_word) or lookup_full_dict(clean_word)
+        if entry:
+            result = {
+                "word": lookup_word,
+                "ipa": entry["ipa"],
+                "meaning_vi": clean_vietnamese_text(entry["meaning_vi"]),
+                "pos": entry["pos"],
+                "cefr_level": "B1" if len(lookup_word) <= 5 else "B2",
+                "source": "offline_dict_108k"
+            }
+        else:
+            trans_map = batch_translate_gtx([lookup_word])
+            meaning = clean_vietnamese_text(trans_map.get(lookup_word, lookup_word))
+            result = {
+                "word": lookup_word,
+                "ipa": f"/{lookup_word}/",
+                "meaning_vi": meaning,
+                "pos": infer_pos(lookup_word),
+                "cefr_level": "B1" if len(lookup_word) <= 5 else "B2"
+            }
 
     # Lưu cache với LRU eviction tự động loại bỏ từ cũ nhất khi đầy 5000
     _TRANSLATE_CACHE[clean_word] = result

@@ -8,11 +8,15 @@ env/
 venv/
 .venv/
 
-# Database (Giữ sạch dữ liệu cá nhân khi chia sẻ)
+# Database (Giữ sạch dữ liệu cá nhân khi chia sẻ, ngoại trừ từ điển offline)
 *.db
+*.db-wal
+*.db-shm
+!app/dict_av.db
 vocab.db
 
-# Environment & Config
+# Environment, Archives & Config
 .env
 .DS_Store
 *.log
+*.zip

@@ -482,6 +482,15 @@ def translate_single_word_robust(word: str) -> Optional[str]:
         if wl_base in BUILTIN_VOCAB_DB and BUILTIN_VOCAB_DB[wl_base].get("vi"):
             return BUILTIN_VOCAB_DB[wl_base]["vi"]
 
+    # 0. Tra cứu siêu tốc từ điển 108.000 từ Offline (O(1) SQLite: ~0.03ms)
+    try:
+        from app.offline_full_dict import lookup_full_dict
+        entry_108k = lookup_full_dict(wl) or lookup_full_dict(wl_base)
+        if entry_108k and entry_108k.get("meaning_vi") and entry_108k["meaning_vi"].lower() != wl:
+            return entry_108k["meaning_vi"]
+    except Exception as e:
+        logger.debug(f"Offline 108K lookup failed: {e}")
+
     # 1. Google Translate Android API (client=at)
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=at&sl=en&tl=vi&dt=t&q={requests.utils.quote(wl)}"
@@ -546,6 +555,21 @@ def translate_chunk_gtx(chunk: List[str]) -> Dict[str, str]:
         elif wl_base in BUILTIN_VOCAB_DB and BUILTIN_VOCAB_DB[wl_base].get("vi"):
             results[w] = BUILTIN_VOCAB_DB[wl_base]["vi"]
             missing.remove(w)
+
+    # Bước 1.5: Tra cứu siêu tốc từ điển 108.000 từ Offline (O(1) SQLite)
+    if missing:
+        try:
+            from app.offline_full_dict import lookup_full_dict_bulk
+            bulk_entries = lookup_full_dict_bulk(missing)
+            for w in list(missing):
+                wl = w.lower().strip()
+                if wl in bulk_entries:
+                    m = bulk_entries[wl].get("meaning_vi")
+                    if m and m.lower() != wl:
+                        results[w] = m
+                        missing.remove(w)
+        except Exception as e:
+            logger.debug(f"Offline 108K bulk lookup failed: {e}")
 
     if not missing:
         return results
@@ -3245,6 +3269,28 @@ def fetch_thesaurus(
         logger.debug(f"Thesaurus cache HIT: {clean_word}")
         return cached
 
+    builtin_info = BUILTIN_VOCAB_DB.get(clean_word, {})
+    default_ipa = builtin_info.get("ipa")
+    default_pos = PRIMARY_POS_LOOKUP.get(clean_word) or builtin_info.get("pos")
+
+    # Bổ sung từ điển 108K từ nếu thiếu IPA hoặc POS chuẩn
+    if not default_ipa or not default_pos:
+        try:
+            from app.offline_full_dict import lookup_full_dict
+            dict_108k = lookup_full_dict(clean_word)
+            if dict_108k:
+                if not default_ipa and dict_108k.get("ipa"):
+                    default_ipa = dict_108k["ipa"]
+                if not default_pos and dict_108k.get("pos") and dict_108k["pos"] != "vocabulary":
+                    default_pos = dict_108k["pos"]
+        except Exception:
+            pass
+
+    if not default_ipa:
+        default_ipa = f"/{clean_word}/"
+    if not default_pos:
+        default_pos = infer_pos(clean_word)
+
     # 1. Thử gọi Gemini AI nếu có API Key
     clean_key = (gemini_api_key or os.environ.get("GEMINI_API_KEY", "")).strip().strip("'\"")
     ai_result = None
@@ -3352,9 +3398,6 @@ Return ONLY JSON without markdown commentary.
             logger.debug(f"Gemini thesaurus lookup failed: {e}")
 
     # 2. Bộ máy Tra cứu Đa chiều Cực nhanh (Datamuse + Builtin DB + Curated Sets + Batch GTX)
-    builtin_info = BUILTIN_VOCAB_DB.get(clean_word, {})
-    default_ipa = builtin_info.get("ipa", f"/{clean_word}/")
-    default_pos = PRIMARY_POS_LOOKUP.get(clean_word) or builtin_info.get("pos") or infer_pos(clean_word)
     default_level = builtin_info.get("level", (ai_result or {}).get("cefr_level", ""))
     default_meaning = (
         (ai_result.get("meaning_vi") if ai_result else None)
